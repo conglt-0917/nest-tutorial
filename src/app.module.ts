@@ -7,9 +7,13 @@ import {
   I18nModule,
   QueryResolver,
 } from 'nestjs-i18n';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      envFilePath: ['.env', '.env.development.local', '.env.development']
+    }),
     I18nModule.forRoot({
       fallbackLanguage: 'en',
       loaderOptions: {
