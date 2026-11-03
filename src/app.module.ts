@@ -12,7 +12,7 @@ import { ConfigModule } from '@nestjs/config';
 @Module({
   imports: [
     ConfigModule.forRoot({
-      envFilePath: ['.env', '.env.development.local', '.env.development']
+      envFilePath: ['.env.development.local', '.env.development', '.env'],
     }),
     I18nModule.forRoot({
       fallbackLanguage: 'en',
