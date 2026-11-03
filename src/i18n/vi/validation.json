@@ -4,6 +4,6 @@
   "NOT_EMPTY": "$t(validation.{property}) không được để trống",
   "INVALID_EMAIL": "email không hợp lệ",
   "INVALID_BOOLEAN": "{property} không phải là kiểu boolean",
-  "MIN": "{property} với giá trị: \"{value}\" phải tối thiểu là {constraints.0}, ngoài ra {message}",
-  "MAX": "{property} với giá trị: \"{value}\" phải nhỏ hơn {constraints.0}, ngoài ra {message}"
+  "MIN": "{property} với giá trị \"{value}\" phải tối thiểu là {constraints.0}",
+  "MAX": "{property} với giá trị \"{value}\" phải nhỏ hơn {constraints.0}"
 }

@@ -14,7 +14,7 @@ import {
       fallbackLanguage: 'en',
       loaderOptions: {
         path: path.join(import.meta.dirname, '/i18n/'),
-        watch: true,
+        watch: process.env.NODE_ENV !== 'production',
       },
       resolvers: [
         { use: QueryResolver, options: ['lang'] },
