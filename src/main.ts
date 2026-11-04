@@ -23,6 +23,6 @@ async function bootstrap() {
     SwaggerModule.setup('api', app, documentFactory);
   }
 
-  await app.listen(configService.get<number>(PORT_KEY) ?? DEFAULT_PORT);
+  await app.listen(configService.get<string>(PORT_KEY) ?? DEFAULT_PORT);
 }
 await bootstrap();
