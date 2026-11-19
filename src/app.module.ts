@@ -21,6 +21,8 @@ import {
 } from './config/app.config.js';
 import { buildDatabaseOptions } from './database/database.options.js';
 import { RedisModule } from './redis/redis.module.js';
+import { UsersModule } from './users/users.module.js';
+import { AuthModule } from './auth/auth.module.js';
 
 @Module({
   imports: [
@@ -53,6 +55,8 @@ import { RedisModule } from './redis/redis.module.js';
       }),
     }),
     RedisModule,
+    UsersModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [
