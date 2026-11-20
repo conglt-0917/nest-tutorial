@@ -1,9 +1,15 @@
 {
   "email": "email",
   "password": "password",
+  "name": "name",
+  "refreshToken": "refresh token",
   "NOT_EMPTY": "$t(validation.{property}) cannot be empty",
   "INVALID_EMAIL": "email is invalid",
   "INVALID_BOOLEAN": "{property} is not a boolean",
+  "INVALID_JWT": "$t(validation.{property}) is not a valid token",
+  "IS_STRING": "$t(validation.{property}) must be a string",
   "MIN": "{property} with value \"{value}\" must be at least {constraints.0}",
-  "MAX": "{property} with value \"{value}\" must be less than {constraints.0}"
+  "MAX": "{property} with value \"{value}\" must be less than {constraints.0}",
+  "MIN_LENGTH": "$t(validation.{property}) must be at least {constraints.0} characters",
+  "MAX_LENGTH": "$t(validation.{property}) must be at most {constraints.0} characters"
 }
