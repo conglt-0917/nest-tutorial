@@ -7,6 +7,7 @@ import {
 import { compare, hash } from 'bcryptjs';
 import { I18nService } from 'nestjs-i18n';
 import { QueryFailedError } from 'typeorm';
+import { PG_UNIQUE_VIOLATION } from '../database/database.constants.js';
 import type { User } from '../users/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import type { LoginDto } from './dto/login.dto.js';
@@ -17,14 +18,12 @@ import type {
 } from './interfaces/jwt-payload.interface.js';
 import { TokenBlacklistService } from './token-blacklist.service.js';
 import { TokenService } from './token.service.js';
-
-export const BCRYPT_SALT_ROUNDS = 10;
-const PG_UNIQUE_VIOLATION = '23505';
+import { BCRYPT_SALT_ROUNDS } from './auth.constants.js';
 
 // sunlint-disable-next-line S041 -- logout revokes both tokens in the Redis blacklist (TokenBlacklistService)
 @Injectable()
 export class AuthService {
-  private dummyPasswordHash?: Promise<string>;
+  private passwordPreventTimmingAttack?: Promise<string>;
 
   constructor(
     private readonly usersService: UsersService,
@@ -53,10 +52,12 @@ export class AuthService {
   }
 
   async login(dto: LoginDto): Promise<TokenPair> {
-    const user = await this.usersService.findByEmailWithPassword(dto.email);
+    const user = await this.usersService.findActiveByEmailWithPassword(
+      dto.email,
+    );
     const passwordMatches = await compare(
       dto.password,
-      user?.password ?? (await this.getDummyPasswordHash()), // prevent timing attack
+      user?.password ?? (await this.getPasswordPreventTimmingAttack()), // prevent timing attack
     );
     if (!user || !passwordMatches) {
       throw new UnauthorizedException(this.i18n.t('auth.INVALID_CREDENTIALS'));
@@ -69,7 +70,9 @@ export class AuthService {
     const revoked =
       payload !== null &&
       (await this.tokenBlacklist.revoke(payload.jti, payload.exp));
-    const user = revoked ? await this.usersService.findById(payload.sub) : null;
+    const user = revoked
+      ? await this.usersService.findActiveById(payload.sub)
+      : null;
     if (!user) {
       throw new UnauthorizedException(
         this.i18n.t('auth.INVALID_REFRESH_TOKEN'),
@@ -86,9 +89,12 @@ export class AuthService {
     }
   }
 
-  private getDummyPasswordHash(): Promise<string> {
-    this.dummyPasswordHash ??= hash(randomUUID(), BCRYPT_SALT_ROUNDS);
-    return this.dummyPasswordHash;
+  private getPasswordPreventTimmingAttack(): Promise<string> {
+    this.passwordPreventTimmingAttack ??= hash(
+      randomUUID(),
+      BCRYPT_SALT_ROUNDS,
+    );
+    return this.passwordPreventTimmingAttack;
   }
 
   private emailTaken(): ConflictException {

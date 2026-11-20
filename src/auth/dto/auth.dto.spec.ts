@@ -2,11 +2,8 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { LoginDto } from './login.dto.js';
 import { RefreshTokenDto } from './refresh-token.dto.js';
-import {
-  PASSWORD_MAX_LENGTH,
-  PASSWORD_MIN_LENGTH,
-  RegisterDto,
-} from './register.dto.js';
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '../auth.constants.js';
+import { RegisterDto } from './register.dto.js';
 
 async function check<T extends object>(
   cls: new () => T,

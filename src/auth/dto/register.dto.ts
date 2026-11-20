@@ -8,14 +8,12 @@ import {
   MinLength,
 } from 'class-validator';
 import { i18nValidationMessage } from 'nestjs-i18n';
-import { normalizeEmail } from './login.dto.js';
-
-export const PASSWORD_MIN_LENGTH = 8;
-export const PASSWORD_MAX_LENGTH = 72;
+import { normalizeEmail, trimString } from '../../common/utils/string.util.js';
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '../auth.constants.js';
 
 export class RegisterDto {
   @ApiProperty({ example: 'user@example.com' })
-  @Transform(normalizeEmail)
+  @Transform(({ value }: { value: unknown }) => normalizeEmail(value))
   @IsEmail({}, { message: i18nValidationMessage('validation.INVALID_EMAIL') })
   @MaxLength(255, { message: i18nValidationMessage('validation.MAX_LENGTH') })
   @IsNotEmpty({ message: i18nValidationMessage('validation.NOT_EMPTY') })
@@ -36,9 +34,7 @@ export class RegisterDto {
   password: string;
 
   @ApiProperty({ example: 'Nguyen Van A', maxLength: 100 })
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim() : value,
-  )
+  @Transform(({ value }: { value: unknown }) => trimString(value))
   @IsString({ message: i18nValidationMessage('validation.IS_STRING') })
   @IsNotEmpty({ message: i18nValidationMessage('validation.NOT_EMPTY') })
   @MaxLength(100, { message: i18nValidationMessage('validation.MAX_LENGTH') })

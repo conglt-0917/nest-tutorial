@@ -15,11 +15,7 @@ import type {
   TokenPair,
   TokenType,
 } from './interfaces/jwt-payload.interface.js';
-
-interface TokenSettings {
-  secret: string;
-  expiresIn: number;
-}
+import type { TokenSettings } from './interfaces/token-settings.interface.js';
 
 /**
  * Signs and verifies access/refresh JWTs. The two token types use different

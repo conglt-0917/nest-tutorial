@@ -1,34 +1,53 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { I18nService } from 'nestjs-i18n';
 import { Repository } from 'typeorm';
+import type { CreateUserInput } from './interfaces/create-user-input.interface.js';
 import { User } from './user.entity.js';
-
-export interface CreateUserInput {
-  email: string;
-  passwordHash: string;
-  name: string;
-}
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User) private readonly usersRepository: Repository<User>,
+    private readonly i18n: I18nService,
   ) {}
 
   findById(id: string): Promise<User | null> {
     return this.usersRepository.findOneBy({ id });
   }
 
+  /** Returns null for unknown and for deactivated users alike. */
+  findActiveById(id: string): Promise<User | null> {
+    return this.usersRepository.findOneBy({ id, active: true });
+  }
+
+  /**
+   * The user behind a valid access token. The token can outlive its user
+   * (deleted or deactivated after it was issued), which is a 401.
+   */
+  async getActiveUser(id: string): Promise<User> {
+    const user = await this.findActiveById(id);
+    if (!user) {
+      throw new UnauthorizedException(this.i18n.t('auth.UNAUTHORIZED'));
+    }
+    return user;
+  }
+
+  /** Includes deactivated users, so their email cannot be registered again. */
   existsByEmail(email: string): Promise<boolean> {
     return this.usersRepository.existsBy({ email });
   }
 
-  /** Includes the password hash, which is excluded from normal selects. */
-  findByEmailWithPassword(email: string): Promise<User | null> {
+  /**
+   * Active user with the password hash (excluded from normal selects), for
+   * login. Deactivated users are treated like unknown emails.
+   */
+  findActiveByEmailWithPassword(email: string): Promise<User | null> {
     return this.usersRepository
       .createQueryBuilder('user')
       .addSelect('user.password')
       .where('user.email = :email', { email })
+      .andWhere('user.active = :active', { active: true })
       .getOne();
   }
 

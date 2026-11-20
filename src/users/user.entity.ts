@@ -28,6 +28,12 @@ export class User {
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
+  @ApiProperty({
+    description: 'Inactive users cannot log in or use their tokens',
+  })
+  @Column({ type: 'boolean', default: true })
+  active: boolean;
+
   @ApiProperty()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

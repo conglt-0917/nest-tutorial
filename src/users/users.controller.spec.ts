@@ -1,7 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { HEADERS_METADATA } from '@nestjs/common/constants.js';
 import { Test, TestingModule } from '@nestjs/testing';
-import { I18nService } from 'nestjs-i18n';
 import { IS_PUBLIC_KEY } from '../auth/decorators/public.decorator.js';
 import type { AuthUser } from '../auth/interfaces/jwt-payload.interface.js';
 import { UsersController } from './users.controller.js';
@@ -14,18 +13,14 @@ describe('UsersController', () => {
     jti: 'jti-1',
     exp: 2,
   };
-  const usersServiceMock = { findById: vi.fn() };
-  const i18nMock = { t: vi.fn((key: string) => key) };
+  const usersServiceMock = { getActiveUser: vi.fn() };
   let controller: UsersController;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
-      providers: [
-        { provide: UsersService, useValue: usersServiceMock },
-        { provide: I18nService, useValue: i18nMock },
-      ],
+      providers: [{ provide: UsersService, useValue: usersServiceMock }],
     }).compile();
     controller = moduleRef.get(UsersController);
   });
@@ -33,18 +28,17 @@ describe('UsersController', () => {
   describe('GET /users/me', () => {
     it('returns the user identified by the access token', async () => {
       const user = { id: 'u1', email: 'user@example.com', name: 'User' };
-      usersServiceMock.findById.mockResolvedValue(user);
+      usersServiceMock.getActiveUser.mockResolvedValue(user);
 
       await expect(controller.getMe(authUser)).resolves.toBe(user);
-      expect(usersServiceMock.findById).toHaveBeenCalledWith('u1');
+      expect(usersServiceMock.getActiveUser).toHaveBeenCalledWith('u1');
     });
 
-    it('returns 401 when the token is valid but the user was deleted', async () => {
-      usersServiceMock.findById.mockResolvedValue(null);
+    it('propagates the 401 for a deleted or deactivated user', async () => {
+      const error = new UnauthorizedException('auth.UNAUTHORIZED');
+      usersServiceMock.getActiveUser.mockRejectedValue(error);
 
-      await expect(controller.getMe(authUser)).rejects.toThrow(
-        new UnauthorizedException('auth.UNAUTHORIZED'),
-      );
+      await expect(controller.getMe(authUser)).rejects.toBe(error);
     });
 
     it('is protected (not @Public) and never cached', () => {

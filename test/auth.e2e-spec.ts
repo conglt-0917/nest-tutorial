@@ -124,6 +124,7 @@ describe('Auth (e2e)', () => {
         id: expect.stringMatching(/^[0-9a-f-]{36}$/),
         email,
         name: 'Ann',
+        active: true,
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
       });
@@ -326,6 +327,56 @@ describe('Auth (e2e)', () => {
 
       await getMe(first.accessToken).expect(200);
       await getMe(second.accessToken).expect(200);
+    });
+  });
+
+  describe('deactivated users', () => {
+    async function deactivatedSession(): Promise<Session> {
+      const session = await newSession('inactive');
+      await users.update({ id: session.id }, { active: false });
+      return session;
+    }
+
+    it('cannot log in, with the same error as a wrong password', async () => {
+      const session = await deactivatedSession();
+
+      const res = await request(server())
+        .post('/auth/login')
+        .send({ email: session.email, password: PASSWORD })
+        .expect(401);
+      expect(res.body.message).toBe('Email or password is incorrect');
+    });
+
+    it('cannot use an access token issued before deactivation on /users/me', async () => {
+      const session = await deactivatedSession();
+
+      await getMe(session.accessToken).expect(401);
+    });
+
+    it('cannot refresh with a refresh token issued before deactivation', async () => {
+      const session = await deactivatedSession();
+
+      await request(server())
+        .post('/auth/refresh')
+        .send({ refreshToken: session.refreshToken })
+        .expect(401);
+    });
+
+    it('cannot be registered again with the same email', async () => {
+      const session = await deactivatedSession();
+
+      await request(server())
+        .post('/auth/register')
+        .send({ email: session.email, password: PASSWORD, name: 'Again' })
+        .expect(409);
+    });
+
+    it('regains access when reactivated', async () => {
+      const session = await deactivatedSession();
+      await users.update({ id: session.id }, { active: true });
+
+      await getMe(session.accessToken).expect(200);
+      await login(session.email);
     });
   });
 

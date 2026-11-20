@@ -1,5 +1,7 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { I18nService } from 'nestjs-i18n';
 import { User } from './user.entity.js';
 import { UsersService } from './users.service.js';
 
@@ -7,6 +9,7 @@ describe('UsersService', () => {
   const queryBuilderMock = {
     addSelect: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
+    andWhere: vi.fn().mockReturnThis(),
     getOne: vi.fn(),
   };
   const repositoryMock = {
@@ -26,6 +29,10 @@ describe('UsersService', () => {
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: repositoryMock },
+        {
+          provide: I18nService,
+          useValue: { t: vi.fn((key: string) => key) },
+        },
       ],
     }).compile();
     service = moduleRef.get(UsersService);
@@ -45,6 +52,35 @@ describe('UsersService', () => {
     await expect(service.findById('missing')).resolves.toBeNull();
   });
 
+  describe('active users', () => {
+    it('findActiveById only matches active users', async () => {
+      const user = { id: 'u1', active: true };
+      repositoryMock.findOneBy.mockResolvedValue(user);
+
+      await expect(service.findActiveById('u1')).resolves.toBe(user);
+      expect(repositoryMock.findOneBy).toHaveBeenCalledWith({
+        id: 'u1',
+        active: true,
+      });
+    });
+
+    it('getActiveUser returns the active user', async () => {
+      const user = { id: 'u1', active: true };
+      repositoryMock.findOneBy.mockResolvedValue(user);
+
+      await expect(service.getActiveUser('u1')).resolves.toBe(user);
+    });
+
+    it('getActiveUser returns 401 when the user was deleted or deactivated', async () => {
+      // findOneBy({ id, active: true }) finds nothing in both cases.
+      repositoryMock.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getActiveUser('u1')).rejects.toThrow(
+        new UnauthorizedException('auth.UNAUTHORIZED'),
+      );
+    });
+  });
+
   it.each([true, false])('existsByEmail returns %s', async (exists) => {
     repositoryMock.existsBy.mockResolvedValue(exists);
 
@@ -52,11 +88,17 @@ describe('UsersService', () => {
     expect(repositoryMock.existsBy).toHaveBeenCalledWith({ email: 'a@b.c' });
   });
 
-  it('findByEmailWithPassword explicitly selects the hidden password column', async () => {
+  it('findActiveByEmailWithPassword selects the hidden password of an active user', async () => {
     const user = { id: 'u1', password: 'hash' };
     queryBuilderMock.getOne.mockResolvedValue(user);
 
-    await expect(service.findByEmailWithPassword('a@b.c')).resolves.toBe(user);
+    await expect(service.findActiveByEmailWithPassword('a@b.c')).resolves.toBe(
+      user,
+    );
+    expect(queryBuilderMock.andWhere).toHaveBeenCalledWith(
+      'user.active = :active',
+      { active: true },
+    );
     expect(repositoryMock.createQueryBuilder).toHaveBeenCalledWith('user');
     expect(queryBuilderMock.addSelect).toHaveBeenCalledWith('user.password');
     // Parameterized, never string-concatenated.

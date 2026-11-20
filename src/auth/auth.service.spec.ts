@@ -43,8 +43,8 @@ describe('AuthService', () => {
   const usersServiceMock = {
     existsByEmail: vi.fn(),
     create: vi.fn(),
-    findByEmailWithPassword: vi.fn(),
-    findById: vi.fn(),
+    findActiveByEmailWithPassword: vi.fn(),
+    findActiveById: vi.fn(),
   };
   const tokenServiceMock = { issuePair: vi.fn(), verify: vi.fn() };
   const blacklistMock = { revoke: vi.fn() };
@@ -108,7 +108,7 @@ describe('AuthService', () => {
 
   describe('login', () => {
     it('returns a token pair for valid credentials', async () => {
-      usersServiceMock.findByEmailWithPassword.mockResolvedValue({
+      usersServiceMock.findActiveByEmailWithPassword.mockResolvedValue({
         ...user,
         password: passwordHash,
       });
@@ -122,7 +122,7 @@ describe('AuthService', () => {
     });
 
     it('rejects a wrong password', async () => {
-      usersServiceMock.findByEmailWithPassword.mockResolvedValue({
+      usersServiceMock.findActiveByEmailWithPassword.mockResolvedValue({
         ...user,
         password: passwordHash,
       });
@@ -132,8 +132,8 @@ describe('AuthService', () => {
       ).rejects.toThrow(new UnauthorizedException('auth.INVALID_CREDENTIALS'));
     });
 
-    it('rejects an unknown email with the same error', async () => {
-      usersServiceMock.findByEmailWithPassword.mockResolvedValue(null);
+    it('rejects an unknown or deactivated email with the same error', async () => {
+      usersServiceMock.findActiveByEmailWithPassword.mockResolvedValue(null);
 
       await expect(
         service.login({ email: 'nobody@example.com', password: PASSWORD }),
@@ -146,7 +146,7 @@ describe('AuthService', () => {
     it('revokes the presented refresh token and issues a new pair', async () => {
       tokenServiceMock.verify.mockResolvedValue(refreshPayload);
       blacklistMock.revoke.mockResolvedValue(true);
-      usersServiceMock.findById.mockResolvedValue(user);
+      usersServiceMock.findActiveById.mockResolvedValue(user);
 
       await expect(service.refresh('old-refresh')).resolves.toEqual(tokenPair);
       expect(tokenServiceMock.verify).toHaveBeenCalledWith(
@@ -175,10 +175,10 @@ describe('AuthService', () => {
       expect(blacklistMock.revoke).not.toHaveBeenCalled();
     });
 
-    it('rejects when the user no longer exists', async () => {
+    it('rejects when the user was deleted or deactivated', async () => {
       tokenServiceMock.verify.mockResolvedValue(refreshPayload);
       blacklistMock.revoke.mockResolvedValue(true);
-      usersServiceMock.findById.mockResolvedValue(null);
+      usersServiceMock.findActiveById.mockResolvedValue(null);
 
       await expect(service.refresh('old-refresh')).rejects.toThrow(
         UnauthorizedException,
@@ -264,7 +264,7 @@ describe('AuthService', () => {
     });
 
     it('login does bcrypt work even for an unknown email (no timing leak)', async () => {
-      usersServiceMock.findByEmailWithPassword.mockResolvedValue(null);
+      usersServiceMock.findActiveByEmailWithPassword.mockResolvedValue(null);
       vi.mocked(compare).mockClear();
 
       await expect(
@@ -276,7 +276,7 @@ describe('AuthService', () => {
     });
 
     it('login computes the dummy hash only once', async () => {
-      usersServiceMock.findByEmailWithPassword.mockResolvedValue(null);
+      usersServiceMock.findActiveByEmailWithPassword.mockResolvedValue(null);
       vi.mocked(hash).mockClear();
 
       for (let i = 0; i < 3; i++) {
@@ -288,10 +288,10 @@ describe('AuthService', () => {
       expect(hash).toHaveBeenCalledTimes(1);
     });
 
-    it('refresh does not issue tokens when the user was deleted', async () => {
+    it('refresh does not issue tokens when the user was deleted or deactivated', async () => {
       tokenServiceMock.verify.mockResolvedValue(refreshPayload);
       blacklistMock.revoke.mockResolvedValue(true);
-      usersServiceMock.findById.mockResolvedValue(null);
+      usersServiceMock.findActiveById.mockResolvedValue(null);
 
       await expect(service.refresh('old-refresh')).rejects.toThrow(
         UnauthorizedException,
@@ -303,11 +303,11 @@ describe('AuthService', () => {
       tokenServiceMock.verify.mockResolvedValue(refreshPayload);
       blacklistMock.revoke.mockResolvedValue(true);
       const renamed = { ...user, email: 'renamed@example.com' };
-      usersServiceMock.findById.mockResolvedValue(renamed);
+      usersServiceMock.findActiveById.mockResolvedValue(renamed);
 
       await service.refresh('old-refresh');
 
-      expect(usersServiceMock.findById).toHaveBeenCalledWith(user.id);
+      expect(usersServiceMock.findActiveById).toHaveBeenCalledWith(user.id);
       expect(tokenServiceMock.issuePair).toHaveBeenCalledWith(renamed);
     });
 

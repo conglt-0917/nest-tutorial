@@ -2,13 +2,11 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 import { i18nValidationMessage } from 'nestjs-i18n';
-
-export const normalizeEmail = ({ value }: { value: unknown }) =>
-  typeof value === 'string' ? value.trim().toLowerCase() : value;
+import { normalizeEmail } from '../../common/utils/string.util.js';
 
 export class LoginDto {
   @ApiProperty({ example: 'user@example.com' })
-  @Transform(normalizeEmail)
+  @Transform(({ value }: { value: unknown }) => normalizeEmail(value))
   @IsEmail({}, { message: i18nValidationMessage('validation.INVALID_EMAIL') })
   @IsNotEmpty({ message: i18nValidationMessage('validation.NOT_EMPTY') })
   email: string;
