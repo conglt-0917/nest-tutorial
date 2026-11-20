@@ -1,10 +1,10 @@
 import {
   Body,
   Controller,
-  Header,
   HttpCode,
   HttpStatus,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -14,8 +14,11 @@ import {
   ApiNoContentResponse,
   ApiOkResponse,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { NoCache } from '../common/decorators/no-cache.decorator.js';
 import { User } from '../users/user.entity.js';
 import { AuthService } from './auth.service.js';
 import { CurrentUser } from './decorators/current-user.decorator.js';
@@ -29,7 +32,10 @@ import type {
   TokenPair,
 } from './interfaces/jwt-payload.interface.js';
 
+// sunlint-disable-next-line S041 -- logout revokes both tokens in the Redis blacklist (TokenBlacklistService)
 @ApiTags('auth')
+@ApiTooManyRequestsResponse()
+@UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -43,10 +49,12 @@ export class AuthController {
     return this.authService.register(dto);
   }
 
+  // sunlint-disable-next-line S037 -- anti-cache headers come from @NoCache(); the rule only detects res.header() calls
   @Public()
+  // sunlint-disable-next-line S045 -- rate-limited by @UseGuards(ThrottlerGuard) on the class; the rule only reads method decorators
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Header('Cache-Control', 'no-store')
+  @NoCache()
   @ApiOkResponse({ type: TokenPairDto })
   @ApiUnauthorizedResponse()
   login(@Body() dto: LoginDto): Promise<TokenPair> {
@@ -56,13 +64,14 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @Header('Cache-Control', 'no-store')
+  @NoCache()
   @ApiOkResponse({ type: TokenPairDto })
   @ApiUnauthorizedResponse()
   refresh(@Body() dto: RefreshTokenDto): Promise<TokenPair> {
     return this.authService.refresh(dto.refreshToken);
   }
 
+  // sunlint-disable-next-line S037 -- anti-cache headers come from @NoCache(); the rule only detects res.header() calls
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiBearerAuth()

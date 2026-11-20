@@ -21,6 +21,7 @@ import { TokenService } from './token.service.js';
 export const BCRYPT_SALT_ROUNDS = 10;
 const PG_UNIQUE_VIOLATION = '23505';
 
+// sunlint-disable-next-line S041 -- logout revokes both tokens in the Redis blacklist (TokenBlacklistService)
 @Injectable()
 export class AuthService {
   private dummyPasswordHash?: Promise<string>;
@@ -44,7 +45,9 @@ export class AuthService {
         name: dto.name,
       });
     } catch (error) {
+      // sunlint-disable-next-line C018 -- nothing is logged here; a unique-violation race is mapped to 409
       if (isUniqueViolation(error)) throw this.emailTaken();
+      // sunlint-disable-next-line C018, C030 -- unexpected errors are rethrown unchanged to keep the stack; Nest logs them
       throw error;
     }
   }

@@ -76,6 +76,7 @@ export class TokenService {
     type: TokenType,
   ): Promise<string> {
     const { secret, expiresIn } = this.settings[type];
+    // sunlint-disable-next-line S042 -- expiresIn is always passed (shorthand property); covered by token.service.spec
     return this.jwtService.signAsync(
       { sub: user.id, email: user.email, jti: randomUUID(), type },
       { secret, expiresIn },

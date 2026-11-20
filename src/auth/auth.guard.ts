@@ -51,6 +51,7 @@ export class AuthGuard implements CanActivate {
   }
 }
 
+// sunlint-disable-next-line S055 -- not an endpoint; it only parses the Authorization header
 function extractBearerToken(request: Request): string | undefined {
   const [scheme, token] = request.headers.authorization?.split(' ') ?? [];
   return scheme === BEARER_SCHEME && token ? token : undefined;

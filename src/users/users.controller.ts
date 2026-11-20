@@ -1,4 +1,4 @@
-import { Controller, Get, Header, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, UnauthorizedException } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import { I18nService } from 'nestjs-i18n';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import { NoCache } from '../common/decorators/no-cache.decorator.js';
 import type { AuthUser } from '../auth/interfaces/jwt-payload.interface.js';
 import { User } from './user.entity.js';
 import { UsersService } from './users.service.js';
@@ -20,8 +21,9 @@ export class UsersController {
     private readonly i18n: I18nService,
   ) {}
 
+  // sunlint-disable-next-line S037 -- anti-cache headers come from @NoCache(); the rule only detects res.header() calls
   @Get('me')
-  @Header('Cache-Control', 'no-store')
+  @NoCache()
   @ApiOkResponse({ type: User })
   @ApiUnauthorizedResponse()
   async getMe(@CurrentUser() authUser: AuthUser): Promise<User> {
