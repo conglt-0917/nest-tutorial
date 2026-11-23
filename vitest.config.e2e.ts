@@ -6,5 +6,7 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    fileParallelism: false,
+    env: { AUTH_THROTTLE_LIMIT: '10000' },
   },
 });
