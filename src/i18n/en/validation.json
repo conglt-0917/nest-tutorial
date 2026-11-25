@@ -2,6 +2,7 @@
   "email": "email",
   "password": "password",
   "name": "name",
+  "bio": "bio",
   "refreshToken": "refresh token",
   "NOT_EMPTY": "$t(validation.{property}) cannot be empty",
   "INVALID_EMAIL": "email is invalid",

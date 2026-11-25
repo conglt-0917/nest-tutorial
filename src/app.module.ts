@@ -23,6 +23,7 @@ import { buildDatabaseOptions } from './database/database.options.js';
 import { RedisModule } from './redis/redis.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { AttachmentsApiModule } from './attachments/attachments-api.module.js';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { AuthModule } from './auth/auth.module.js';
     RedisModule,
     UsersModule,
     AuthModule,
+    AttachmentsApiModule,
   ],
   controllers: [AppController],
   providers: [

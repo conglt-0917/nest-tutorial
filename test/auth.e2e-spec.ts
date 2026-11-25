@@ -124,6 +124,7 @@ describe('Auth (e2e)', () => {
         id: expect.stringMatching(/^[0-9a-f-]{36}$/),
         email,
         name: 'Ann',
+        bio: null,
         active: true,
         createdAt: expect.any(String),
         updatedAt: expect.any(String),

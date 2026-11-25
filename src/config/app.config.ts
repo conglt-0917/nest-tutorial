@@ -42,3 +42,7 @@ export const AUTH_THROTTLE_TTL_KEY = 'AUTH_THROTTLE_TTL';
 export const AUTH_THROTTLE_LIMIT_KEY = 'AUTH_THROTTLE_LIMIT';
 export const DEFAULT_AUTH_THROTTLE_TTL = 60; // seconds
 export const DEFAULT_AUTH_THROTTLE_LIMIT = 10; // requests per window
+
+// Uploaded files 
+export const UPLOAD_DIR_KEY = 'UPLOAD_DIR';
+export const DEFAULT_UPLOAD_DIR = 'uploads';

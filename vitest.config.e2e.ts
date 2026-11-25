@@ -7,6 +7,6 @@ export default defineConfig({
     root: './',
     include: ['**/*.e2e-spec.ts'],
     fileParallelism: false,
-    env: { AUTH_THROTTLE_LIMIT: '10000' },
+    env: { AUTH_THROTTLE_LIMIT: '10000', UPLOAD_DIR: '.tmp/e2e-uploads' },
   },
 });
