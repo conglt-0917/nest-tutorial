@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { I18nService } from 'nestjs-i18n';
@@ -151,21 +151,34 @@ describe('AttachmentsService', () => {
     await expect(service.findUrl(owner, 'avatar')).resolves.toBeNull();
   });
 
-  it('openFile is a 404 when the file is missing from storage', async () => {
+  it('openFile is a 404 and logs a warning when the file is missing from storage', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
     storageMock.open.mockResolvedValue(null);
 
     await expect(
       service.openFile({ id: 'a1', storageKey: 'a1.png' } as Attachment),
     ).rejects.toThrow(new NotFoundException('attachments.NOT_FOUND'));
+    expect(warn).toHaveBeenCalledWith('File of attachment a1 is missing');
+    warn.mockRestore();
   });
 
-  it('removeFiles keeps going when one file cannot be removed', async () => {
+  it('removeFiles keeps going and logs the error when one file cannot be removed', async () => {
+    const error = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
     storageMock.remove.mockRejectedValueOnce(new Error('EACCES'));
 
     await expect(
       service.removeFiles(['a.png', 'b.png']),
     ).resolves.toBeUndefined();
     expect(storageMock.remove).toHaveBeenCalledTimes(2);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      'Could not remove file a.png: Error: EACCES',
+    );
+    error.mockRestore();
   });
 
   it('attachmentUrl points at the attachments endpoint', () => {

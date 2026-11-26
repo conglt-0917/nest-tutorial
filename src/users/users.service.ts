@@ -135,7 +135,7 @@ export class UsersService {
       }
 
       if (changes.name) user.name = changes.name;
-      if (changes.bio) user.bio = changes.bio || null;
+      if (changes.bio !== undefined) user.bio = changes.bio || null;
       const saved = await repository.save(user);
 
       if (!stored) return { user: saved, removedKeys: [] };
