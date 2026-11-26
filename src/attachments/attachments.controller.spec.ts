@@ -1,4 +1,3 @@
-import { Readable } from 'node:stream';
 import {
   NotFoundException,
   ParseUUIDPipe,
@@ -25,11 +24,6 @@ describe('AttachmentsController', () => {
   const accessServiceMock = { getViewableFile: vi.fn() };
   let controller: AttachmentsController;
 
-  const viewable = (fileName: string) => ({
-    attachment: { id: 'a1', mimeType: 'image/png', size: 68, fileName },
-    stream: Readable.from([Buffer.from('png')]),
-  });
-
   beforeEach(async () => {
     vi.clearAllMocks();
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -42,43 +36,15 @@ describe('AttachmentsController', () => {
   });
 
   describe('GET /attachments/:id', () => {
-    it('asks the access service for the file of the signed-in viewer', async () => {
-      const file = viewable('me.png');
+    it('returns the file the access service builds for the signed-in viewer', async () => {
+      const file = new StreamableFile(Buffer.from('png'));
       accessServiceMock.getViewableFile.mockResolvedValue(file);
 
-      const result = await controller.download(authUser, 'a1');
-
+      await expect(controller.download(authUser, 'a1')).resolves.toBe(file);
       expect(accessServiceMock.getViewableFile).toHaveBeenCalledWith(
         authUser,
         'a1',
       );
-      expect(result).toBeInstanceOf(StreamableFile);
-      expect(result.getStream()).toBe(file.stream);
-    });
-
-    it('sends the stored type and size, inline', async () => {
-      accessServiceMock.getViewableFile.mockResolvedValue(viewable('me.png'));
-
-      const result = await controller.download(authUser, 'a1');
-
-      expect(result.getHeaders()).toEqual({
-        type: 'image/png',
-        length: 68,
-        disposition: "inline; filename*=UTF-8''me.png",
-      });
-    });
-
-    it('percent-encodes the file name, so non-ASCII names and quotes cannot break the header', async () => {
-      accessServiceMock.getViewableFile.mockResolvedValue(
-        viewable('ảnh đại diện;x=1.png'),
-      );
-
-      const result = await controller.download(authUser, 'a1');
-
-      expect(result.getHeaders().disposition).toBe(
-        `inline; filename*=UTF-8''${encodeURIComponent('ảnh đại diện;x=1.png')}`,
-      );
-      expect(result.getHeaders().disposition).not.toMatch(/[^\x20-\x7e]/);
     });
 
     it.each([

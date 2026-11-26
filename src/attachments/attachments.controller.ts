@@ -35,18 +35,10 @@ export class AttachmentsController {
   @ApiOkResponse({ schema: { type: 'string', format: 'binary' } })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse()
-  async download(
+  download(
     @CurrentUser() authUser: AuthUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<StreamableFile> {
-    const { attachment, stream } = await this.accessService.getViewableFile(
-      authUser,
-      id,
-    );
-    return new StreamableFile(stream, {
-      type: attachment.mimeType,
-      length: attachment.size,
-      disposition: `inline; filename*=UTF-8''${encodeURIComponent(attachment.fileName)}`,
-    });
+    return this.accessService.getViewableFile(authUser, id);
   }
 }

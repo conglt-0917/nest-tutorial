@@ -1,4 +1,9 @@
-import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Readable } from 'node:stream';
+import {
+  NotFoundException,
+  StreamableFile,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthUser } from '../auth/interfaces/jwt-payload.interface.js';
 import { UsersService } from '../users/users.service.js';
@@ -7,8 +12,15 @@ import { AttachmentsService } from './attachments.service.js';
 
 describe('AttachmentAccessService', () => {
   const viewer: AuthUser = { id: 'u1', email: 'a@b.c', jti: 'j', exp: 1 };
-  const avatar = { id: 'a1', attachableType: 'user', attachableId: 'u2' };
-  const stream = { pipe: vi.fn() };
+  const avatar = {
+    id: 'a1',
+    attachableType: 'user',
+    attachableId: 'u2',
+    mimeType: 'image/png',
+    size: 68,
+    fileName: 'me.png',
+  };
+  let stream: Readable;
   const attachmentsServiceMock = {
     findById: vi.fn(),
     openFile: vi.fn(),
@@ -19,6 +31,7 @@ describe('AttachmentAccessService', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    stream = Readable.from([Buffer.from('png')]);
     usersServiceMock.getActiveUser.mockResolvedValue({ id: 'u1' });
     usersServiceMock.findActiveById.mockResolvedValue({ id: 'u2' });
     attachmentsServiceMock.findById.mockResolvedValue(avatar);
@@ -34,11 +47,36 @@ describe('AttachmentAccessService', () => {
   });
 
   it("returns an active user's avatar to any active viewer", async () => {
-    await expect(service.getViewableFile(viewer, 'a1')).resolves.toEqual({
-      attachment: avatar,
-      stream,
-    });
+    const file = await service.getViewableFile(viewer, 'a1');
+
+    expect(file).toBeInstanceOf(StreamableFile);
+    expect(file.getStream()).toBe(stream);
+    expect(attachmentsServiceMock.openFile).toHaveBeenCalledWith(avatar);
     expect(usersServiceMock.findActiveById).toHaveBeenCalledWith('u2');
+  });
+
+  it('sends the stored type and size, inline', async () => {
+    const file = await service.getViewableFile(viewer, 'a1');
+
+    expect(file.getHeaders()).toEqual({
+      type: 'image/png',
+      length: 68,
+      disposition: "inline; filename*=UTF-8''me.png",
+    });
+  });
+
+  it('percent-encodes the file name, so non-ASCII names and quotes cannot break the header', async () => {
+    attachmentsServiceMock.findById.mockResolvedValue({
+      ...avatar,
+      fileName: 'ảnh đại diện;x=1.png',
+    });
+
+    const file = await service.getViewableFile(viewer, 'a1');
+
+    expect(file.getHeaders().disposition).toBe(
+      `inline; filename*=UTF-8''${encodeURIComponent('ảnh đại diện;x=1.png')}`,
+    );
+    expect(file.getHeaders().disposition).not.toMatch(/[^\x20-\x7e]/);
   });
 
   it('is a 401 for a deactivated viewer, before looking the file up', async () => {
@@ -93,8 +131,8 @@ describe('AttachmentAccessService', () => {
       attachableId: 'u1',
     });
 
-    await expect(service.getViewableFile(viewer, 'a1')).resolves.toMatchObject({
-      stream,
-    });
+    const file = await service.getViewableFile(viewer, 'a1');
+
+    expect(file.getStream()).toBe(stream);
   });
 });
