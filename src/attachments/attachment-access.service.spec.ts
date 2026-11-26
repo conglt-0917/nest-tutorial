@@ -79,4 +79,22 @@ describe('AttachmentAccessService', () => {
       NotFoundException,
     );
   });
+
+  it('propagates the 404 when the file is missing from storage', async () => {
+    const error = new NotFoundException('attachments.NOT_FOUND');
+    attachmentsServiceMock.openFile.mockRejectedValue(error);
+
+    await expect(service.getViewableFile(viewer, 'a1')).rejects.toBe(error);
+  });
+
+  it('lets the viewer see their own avatar', async () => {
+    attachmentsServiceMock.findById.mockResolvedValue({
+      ...avatar,
+      attachableId: 'u1',
+    });
+
+    await expect(service.getViewableFile(viewer, 'a1')).resolves.toMatchObject({
+      stream,
+    });
+  });
 });

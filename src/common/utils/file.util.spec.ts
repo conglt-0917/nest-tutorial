@@ -17,4 +17,12 @@ describe('sanitizeFileName', () => {
   it('truncates to the maximum length', () => {
     expect(sanitizeFileName('a'.repeat(300), 255)).toHaveLength(255);
   });
+
+  it('does not cut a multi-byte character in half', () => {
+    expect(sanitizeFileName('ảnh.png', 2)).toBe('ản');
+  });
+
+  it('removes the DEL character', () => {
+    expect(sanitizeFileName('a\u007fb.png', 255)).toBe('ab.png');
+  });
 });

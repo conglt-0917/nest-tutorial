@@ -37,15 +37,10 @@ export class UsersService {
     return this.usersRepository.findOneBy({ id });
   }
 
-  /** Returns null for unknown and for deactivated users alike. */
   findActiveById(id: string): Promise<User | null> {
     return this.usersRepository.findOneBy({ id, active: true });
   }
 
-  /**
-   * The user behind a valid access token. The token can outlive its user
-   * (deleted or deactivated after it was issued), which is a 401.
-   */
   async getActiveUser(id: string): Promise<User> {
     const user = await this.findActiveById(id);
     if (!user) {
@@ -54,15 +49,10 @@ export class UsersService {
     return user;
   }
 
-  /** Includes deactivated users, so their email cannot be registered again. */
   existsByEmail(email: string): Promise<boolean> {
     return this.usersRepository.existsBy({ email });
   }
 
-  /**
-   * Active user with the password hash (excluded from normal selects), for
-   * login. Deactivated users are treated like unknown emails.
-   */
   findActiveByEmailWithPassword(email: string): Promise<User | null> {
     return this.usersRepository
       .createQueryBuilder('user')
@@ -86,12 +76,6 @@ export class UsersService {
     return MeDto.from(user, await this.findAvatarUrl(id));
   }
 
-  /**
-   * Updates the signed-in user's name, bio and/or avatar. A new avatar is
-   * validated and written to disk first; the user row and the attachment row
-   * then change in one transaction. The old avatar file is deleted only after
-   * commit, and the new one is deleted if the transaction fails.
-   */
   async updateMe(
     id: string,
     changes: UpdateUserInput,
@@ -109,7 +93,6 @@ export class UsersService {
       await this.attachmentsService.removeFiles(removedKeys);
       return MeDto.from(user, await this.findAvatarUrl(id));
     } finally {
-      // The new file has no database row if the transaction failed.
       if (stored && !isCommitted) {
         await this.attachmentsService.removeFiles([stored.storageKey]);
       }
@@ -139,13 +122,10 @@ export class UsersService {
     changes: UpdateUserInput,
     stored: StoredFile | null,
   ): Promise<{ user: User; removedKeys: string[] }> {
-    // One transaction across users and attachments, so both need the same manager.
     // sunlint-disable-next-line C033 -- the transaction spans two repositories
     return this.usersRepository.manager.transaction(async (manager) => {
       // sunlint-disable-next-line C033 -- the users repository bound to this transaction
       const repository = manager.getRepository(User);
-      // The row lock serializes concurrent updates of the same user, so two
-      // avatar uploads cannot both replace the same previous avatar.
       const user = await repository.findOne({
         where: { id, active: true },
         lock: { mode: 'pessimistic_write' },
@@ -154,8 +134,8 @@ export class UsersService {
         throw new UnauthorizedException(this.i18n.t('auth.UNAUTHORIZED'));
       }
 
-      if (changes.name !== undefined) user.name = changes.name;
-      if (changes.bio !== undefined) user.bio = changes.bio || null;
+      if (changes.name) user.name = changes.name;
+      if (changes.bio) user.bio = changes.bio || null;
       const saved = await repository.save(user);
 
       if (!stored) return { user: saved, removedKeys: [] };
@@ -169,7 +149,6 @@ export class UsersService {
     });
   }
 
-  /** 401 for an unusable viewer, 400 for following oneself, 404 for an unknown target. */
   private async getFollowTarget(
     viewerId: string,
     targetId: string,
@@ -183,7 +162,6 @@ export class UsersService {
     return this.getProfileTarget(targetId);
   }
 
-  /** Deactivated users look exactly like unknown ones: 404. */
   private async getProfileTarget(id: string): Promise<User> {
     const user = await this.findActiveById(id);
     if (!user) {

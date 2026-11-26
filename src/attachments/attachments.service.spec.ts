@@ -6,7 +6,6 @@ import { Attachment } from './attachment.entity.js';
 import { AttachmentStorageService } from './attachment-storage.service.js';
 import { AttachmentsService, attachmentUrl } from './attachments.service.js';
 
-// 1x1 transparent PNG.
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
   'base64',
@@ -43,7 +42,7 @@ describe('AttachmentsService', () => {
     it('writes a valid image under a random name with the detected type', async () => {
       const stored = await service.storeImage({
         originalname: '../../avatar.PNG',
-        mimetype: 'application/octet-stream', // client's claim is ignored
+        mimetype: 'application/octet-stream',
         size: PNG.length,
         buffer: PNG,
       });
@@ -171,5 +170,181 @@ describe('AttachmentsService', () => {
 
   it('attachmentUrl points at the attachments endpoint', () => {
     expect(attachmentUrl('a1')).toBe('/attachments/a1');
+  });
+
+  describe('storeImage, other formats', () => {
+    const JPEG = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      Buffer.alloc(64),
+    ]);
+    const WEBP = Buffer.concat([
+      Buffer.from('RIFF'),
+      Buffer.from([0x24, 0, 0, 0]),
+      Buffer.from('WEBPVP8 '),
+      Buffer.alloc(32),
+    ]);
+    const GIF = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(32)]);
+
+    it.each([
+      ['JPEG', JPEG, 'image/jpeg', '.jpg'],
+      ['WebP', WEBP, 'image/webp', '.webp'],
+    ])(
+      'accepts %s and stores it with the matching extension',
+      async (_label, buffer, mimeType, ext) => {
+        const stored = await service.storeImage({
+          originalname: 'photo',
+          mimetype: 'image/png',
+          size: buffer.length,
+          buffer,
+        });
+
+        expect(stored.mimeType).toBe(mimeType);
+        expect(stored.storageKey).toBe(`${stored.id}${ext}`);
+      },
+    );
+
+    it('rejects a real image of a type that is not accepted (GIF)', async () => {
+      await expect(
+        service.storeImage({
+          originalname: 'a.gif',
+          mimetype: 'image/gif',
+          size: GIF.length,
+          buffer: GIF,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an empty file', async () => {
+      await expect(
+        service.storeImage({
+          originalname: 'a.png',
+          mimetype: 'image/png',
+          size: 0,
+          buffer: Buffer.alloc(0),
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("does not change the caller's file object", async () => {
+      const file = {
+        originalname: 'a.png',
+        mimetype: 'application/octet-stream',
+        size: PNG.length,
+        buffer: PNG,
+      };
+
+      await service.storeImage(file);
+
+      expect(file.mimetype).toBe('application/octet-stream');
+    });
+
+    it('uses the real byte length, not the size the client reported', async () => {
+      const stored = await service.storeImage({
+        originalname: 'a.png',
+        mimetype: 'image/png',
+        size: 999_999,
+        buffer: PNG,
+      });
+
+      expect(stored.size).toBe(PNG.length);
+    });
+
+    it('falls back to a generic file name when the client sends none', async () => {
+      const stored = await service.storeImage({
+        originalname: '',
+        mimetype: 'image/png',
+        size: PNG.length,
+        buffer: PNG,
+      });
+
+      expect(stored.fileName).toBe('file');
+    });
+
+    it('gives every upload a new id and storage key', async () => {
+      const file = {
+        originalname: 'a.png',
+        mimetype: 'image/png',
+        size: PNG.length,
+        buffer: PNG,
+      };
+
+      const [first, second] = await Promise.all([
+        service.storeImage(file),
+        service.storeImage(file),
+      ]);
+
+      expect(first.id).not.toBe(second.id);
+      expect(first.storageKey).not.toBe(second.storageKey);
+    });
+
+    it('propagates a storage error', async () => {
+      const error = new Error('EEXIST');
+      storageMock.write.mockRejectedValueOnce(error);
+
+      await expect(
+        service.storeImage({
+          originalname: 'a.png',
+          mimetype: 'image/png',
+          size: PNG.length,
+          buffer: PNG,
+        }),
+      ).rejects.toBe(error);
+    });
+  });
+
+  it('findById looks the attachment up by id', async () => {
+    const attachment = { id: 'a1' };
+    repositoryMock.findOneBy.mockResolvedValue(attachment);
+
+    await expect(service.findById('a1')).resolves.toBe(attachment);
+    expect(repositoryMock.findOneBy).toHaveBeenCalledWith({ id: 'a1' });
+  });
+
+  it('findUrl queries the owner and kind and selects only the url', async () => {
+    repositoryMock.findOne.mockResolvedValue(null);
+
+    await service.findUrl({ type: 'user', id: 'u1' }, 'avatar');
+
+    expect(repositoryMock.findOne).toHaveBeenCalledWith({
+      select: { id: true, url: true },
+      where: { attachableType: 'user', attachableId: 'u1', kind: 'avatar' },
+    });
+  });
+
+  it('openFile returns the stream of the stored file', async () => {
+    const stream = { pipe: vi.fn() };
+    storageMock.open.mockResolvedValue(stream);
+
+    await expect(
+      service.openFile({ id: 'a1', storageKey: 'a1.png' } as Attachment),
+    ).resolves.toBe(stream);
+    expect(storageMock.open).toHaveBeenCalledWith('a1.png');
+  });
+
+  it('removeFiles with no keys does nothing', async () => {
+    await service.removeFiles([]);
+
+    expect(storageMock.remove).not.toHaveBeenCalled();
+  });
+
+  it('replaceSingle propagates a database error', async () => {
+    const error = new Error('unique violation');
+    txRepositoryMock.find.mockResolvedValue([]);
+    txRepositoryMock.save.mockRejectedValueOnce(error);
+
+    await expect(
+      service.replaceSingle(
+        managerMock as never,
+        { type: 'user', id: 'u1' },
+        'avatar',
+        {
+          id: 'a2',
+          storageKey: 'a2.png',
+          fileName: 'a.png',
+          mimeType: 'image/png',
+          size: 1,
+        },
+      ),
+    ).rejects.toBe(error);
   });
 });

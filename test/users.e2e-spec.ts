@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
@@ -15,20 +15,28 @@ import { User } from './../src/users/user.entity.js';
 const RUN_ID = randomUUID().slice(0, 8);
 const PASSWORD = 'Secret123!';
 const UPLOAD_DIR = resolve(process.env.UPLOAD_DIR ?? 'uploads');
-// 1x1 transparent PNG.
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
   'base64',
 );
-// Smallest JPEG header file-type recognises.
 const JPEG = Buffer.concat([
   Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
   Buffer.alloc(64),
 ]);
 
+const WEBP = Buffer.concat([
+  Buffer.from('RIFF'),
+  Buffer.from([0x24, 0, 0, 0]),
+  Buffer.from('WEBPVP8 '),
+  Buffer.alloc(32),
+]);
+const GIF = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(32)]);
+
 interface Session {
   id: string;
+  email: string;
   token: string;
+  refreshToken: string;
 }
 
 describe('Users (e2e)', () => {
@@ -50,14 +58,36 @@ describe('Users (e2e)', () => {
       .post('/auth/login')
       .send({ email, password: PASSWORD })
       .expect(200);
+    const tokens = loggedIn.body as {
+      accessToken: string;
+      refreshToken: string;
+    };
     return {
       id: (registered.body as { id: string }).id,
-      token: (loggedIn.body as { accessToken: string }).accessToken,
+      email,
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
     };
   }
 
   const patchMe = (token: string) =>
     request(server()).patch('/users/me').set(auth(token));
+
+  const download = (url: string, token: string) =>
+    request(server())
+      .get(url)
+      .set(auth(token))
+      .buffer(true)
+      .parse((response, done) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.on('end', () => done(null, Buffer.concat(chunks)));
+      });
+
+  const uploadCount = async () => (await readdir(UPLOAD_DIR)).length;
+
+  const avatarOf = (userId: string) =>
+    attachments.findBy({ attachableType: 'user', attachableId: userId });
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -72,7 +102,14 @@ describe('Users (e2e)', () => {
 
   afterAll(async () => {
     const created = await users.findBy({ email: Like(`e2e-${RUN_ID}-%`) });
-    await attachments.delete({ attachableId: In(created.map((u) => u.id)) });
+    const ids = created.map((u) => u.id);
+    const files = await attachments.findBy({ attachableId: In(ids) });
+    await Promise.all(
+      files.map((file) =>
+        rm(join(UPLOAD_DIR, file.storageKey), { force: true }),
+      ),
+    );
+    await attachments.delete({ attachableId: In(ids) });
     await users.delete({ email: Like(`e2e-${RUN_ID}-%`) });
     await app.close();
   });
@@ -354,6 +391,458 @@ describe('Users (e2e)', () => {
     it('requires a token', async () => {
       await request(server()).get(`/users/${randomUUID()}`).expect(401);
       await request(server()).post(`/users/${randomUUID()}/follow`).expect(401);
+    });
+  });
+
+  describe('PATCH /users/me, more cases', () => {
+    it('ignores fields it does not own (email, password, active, id)', async () => {
+      const me = await newSession();
+
+      const res = await patchMe(me.token)
+        .field('name', 'Renamed')
+        .field('email', 'hijack@example.com')
+        .field('password', 'Another123!')
+        .field('active', 'false')
+        .field('id', randomUUID())
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        id: me.id,
+        email: me.email,
+        name: 'Renamed',
+        active: true,
+      });
+      const row = await users.findOneByOrFail({ id: me.id });
+      expect(row).toMatchObject({ email: me.email, active: true });
+      await request(server())
+        .post('/auth/login')
+        .send({ email: me.email, password: PASSWORD })
+        .expect(200);
+    });
+
+    it('accepts the maximum lengths and rejects one more', async () => {
+      const me = await newSession();
+
+      await patchMe(me.token)
+        .field('name', 'n'.repeat(100))
+        .field('bio', 'b'.repeat(500))
+        .expect(200);
+      await patchMe(me.token).field('name', 'n'.repeat(101)).expect(400);
+
+      const row = await users.findOneByOrFail({ id: me.id });
+      expect(row.name).toHaveLength(100);
+      expect(row.bio).toHaveLength(500);
+    });
+
+    it('translates errors with ?lang=vi', async () => {
+      const me = await newSession();
+
+      const invalidName = await request(server())
+        .patch('/users/me?lang=vi')
+        .set(auth(me.token))
+        .field('name', '')
+        .expect(400);
+      expect(JSON.stringify(invalidName.body)).toContain(
+        'tên không được để trống',
+      );
+
+      const invalidImage = await request(server())
+        .patch('/users/me?lang=vi')
+        .set(auth(me.token))
+        .attach('avatar', GIF, 'a.gif')
+        .expect(400);
+      expect(invalidImage.body).toMatchObject({
+        message: 'Ảnh đại diện phải là ảnh PNG, JPEG hoặc WebP',
+      });
+    });
+
+    it('accepts a WebP avatar', async () => {
+      const me = await newSession();
+
+      const res = await patchMe(me.token)
+        .attach('avatar', WEBP, 'a.webp')
+        .expect(200);
+
+      const [attachment] = await avatarOf(me.id);
+      expect(attachment).toMatchObject({
+        mimeType: 'image/webp',
+        url: (res.body as { avatarUrl: string }).avatarUrl,
+      });
+      expect(attachment.storageKey).toMatch(/\.webp$/);
+    });
+
+    it('rejects a real image of a type that is not accepted (GIF)', async () => {
+      const me = await newSession();
+      const before = await uploadCount();
+
+      await patchMe(me.token)
+        .attach('avatar', GIF, { filename: 'a.gif', contentType: 'image/gif' })
+        .expect(400);
+
+      expect(await uploadCount()).toBe(before);
+      expect(await avatarOf(me.id)).toHaveLength(0);
+    });
+
+    it('stores the detected type, not the one the client claims', async () => {
+      const me = await newSession();
+
+      await patchMe(me.token)
+        .attach('avatar', JPEG, {
+          filename: 'photo.png',
+          contentType: 'image/png',
+        })
+        .expect(200);
+
+      const [attachment] = await avatarOf(me.id);
+      expect(attachment.mimeType).toBe('image/jpeg');
+      expect(attachment.storageKey).toMatch(/\.jpg$/);
+      expect(attachment.fileName).toBe('photo.png');
+    });
+
+    it('rejects two avatar files and writes nothing', async () => {
+      const me = await newSession();
+      const before = await uploadCount();
+
+      await patchMe(me.token)
+        .attach('avatar', PNG, 'a.png')
+        .attach('avatar', PNG, 'b.png')
+        .expect(400);
+
+      expect(await uploadCount()).toBe(before);
+    });
+
+    it('does not store the avatar when a text field is invalid', async () => {
+      const me = await newSession();
+      const before = await uploadCount();
+
+      await patchMe(me.token)
+        .field('name', '   ')
+        .attach('avatar', PNG, 'a.png')
+        .expect(400);
+
+      expect(await uploadCount()).toBe(before);
+      expect(await avatarOf(me.id)).toHaveLength(0);
+    });
+
+    it('an avatar-only update keeps name and bio, and GET /users/me shows the avatar', async () => {
+      const me = await newSession('Keep Me');
+      await patchMe(me.token).field('bio', 'Keep bio').expect(200);
+
+      const res = await patchMe(me.token)
+        .attach('avatar', PNG, 'a.png')
+        .expect(200);
+      const avatarUrl = (res.body as { avatarUrl: string }).avatarUrl;
+
+      const fetched = await request(server())
+        .get('/users/me')
+        .set(auth(me.token))
+        .expect(200);
+      expect(fetched.body).toMatchObject({
+        name: 'Keep Me',
+        bio: 'Keep bio',
+        avatarUrl,
+      });
+    });
+
+    it('keeps exactly one avatar and one file when uploads run concurrently', async () => {
+      const me = await newSession();
+
+      const responses = await Promise.all(
+        [PNG, JPEG, WEBP, PNG].map((buffer, i) =>
+          patchMe(me.token).attach('avatar', buffer, `${i}.img`),
+        ),
+      );
+
+      expect(responses.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+      const rows = await avatarOf(me.id);
+      expect(rows).toHaveLength(1);
+      const urls = responses.map(
+        (r) => (r.body as { avatarUrl: string }).avatarUrl,
+      );
+      expect(urls).toContain(rows[0].url);
+      const ids = urls.map((url) => url.split('/').pop());
+      const left = (await readdir(UPLOAD_DIR)).filter((name) =>
+        ids.some((id) => name.startsWith(`${id}.`)),
+      );
+      expect(left).toEqual([rows[0].storageKey]);
+    });
+
+    it('is a 401 for a deactivated user, and nothing is written', async () => {
+      const me = await newSession();
+      await users.update({ id: me.id }, { active: false });
+      const before = await uploadCount();
+
+      await patchMe(me.token)
+        .field('name', 'X')
+        .attach('avatar', PNG, 'a.png')
+        .expect(401);
+
+      expect(await uploadCount()).toBe(before);
+      const row = await users.findOneByOrFail({ id: me.id });
+      expect(row.name).toBe('E2E User');
+    });
+
+    it('is a 401 with a logged-out token', async () => {
+      const me = await newSession();
+      await request(server())
+        .post('/auth/logout')
+        .set(auth(me.token))
+        .send({ refreshToken: me.refreshToken })
+        .expect(204);
+
+      await patchMe(me.token).field('name', 'X').expect(401);
+    });
+
+    it('is never cached', async () => {
+      const me = await newSession();
+
+      const res = await patchMe(me.token).field('name', 'X').expect(200);
+
+      expect(res.headers['cache-control']).toBe(
+        'no-store, no-cache, must-revalidate',
+      );
+      expect(res.headers['pragma']).toBe('no-cache');
+    });
+  });
+
+  describe('GET /attachments/:id, more cases', () => {
+    async function uploadAvatar(session: Session, name = 'a.png') {
+      const res = await patchMe(session.token)
+        .attach('avatar', PNG, name)
+        .expect(200);
+      return (res.body as { avatarUrl: string }).avatarUrl;
+    }
+
+    it('sends length, private caching and an encoded UTF-8 file name', async () => {
+      const me = await newSession();
+      const avatarUrl = await uploadAvatar(me, 'ảnh "đại" diện.png');
+
+      const res = await download(avatarUrl, me.token).expect(200);
+
+      expect(res.headers['content-length']).toBe(String(PNG.length));
+      expect(res.headers['cache-control']).toBe('private, max-age=86400');
+      expect(res.headers['content-disposition']).toBe(
+        `inline; filename*=UTF-8''${encodeURIComponent('ảnh đại diện.png')}`,
+      );
+    });
+
+    it('lets the owner download their own avatar', async () => {
+      const me = await newSession();
+      const avatarUrl = await uploadAvatar(me);
+
+      const res = await download(avatarUrl, me.token).expect(200);
+
+      expect(Buffer.compare(res.body as Buffer, PNG)).toBe(0);
+    });
+
+    it('is a 404 when the file is missing from disk', async () => {
+      const me = await newSession();
+      const avatarUrl = await uploadAvatar(me);
+      const [attachment] = await avatarOf(me.id);
+      await rm(join(UPLOAD_DIR, attachment.storageKey));
+
+      await request(server()).get(avatarUrl).set(auth(me.token)).expect(404);
+    });
+
+    it('is a 401 for a deactivated viewer', async () => {
+      const owner = await newSession();
+      const viewer = await newSession();
+      const avatarUrl = await uploadAvatar(owner);
+      await users.update({ id: viewer.id }, { active: false });
+
+      await request(server())
+        .get(avatarUrl)
+        .set(auth(viewer.token))
+        .expect(401);
+    });
+
+    it('is a 404 for an attachment whose owner type is not served', async () => {
+      const me = await newSession();
+      const id = randomUUID();
+      await attachments.insert({
+        id,
+        attachableType: 'post' as never,
+        attachableId: me.id,
+        kind: 'cover' as never,
+        url: `/attachments/${id}`,
+        fileName: 'x.png',
+        mimeType: 'image/png',
+        size: PNG.length,
+        storageKey: `${id}.png`,
+      });
+
+      await request(server())
+        .get(`/attachments/${id}`)
+        .set(auth(me.token))
+        .expect(404);
+    });
+
+    it('becomes available again when a deactivated owner is reactivated', async () => {
+      const owner = await newSession();
+      const viewer = await newSession();
+      const avatarUrl = await uploadAvatar(owner);
+
+      await users.update({ id: owner.id }, { active: false });
+      await request(server())
+        .get(avatarUrl)
+        .set(auth(viewer.token))
+        .expect(404);
+
+      await users.update({ id: owner.id }, { active: true });
+      await request(server())
+        .get(avatarUrl)
+        .set(auth(viewer.token))
+        .expect(200);
+    });
+  });
+
+  describe('profiles and follows, more cases', () => {
+    it("shows the target's avatar and never the email", async () => {
+      const viewer = await newSession();
+      const target = await newSession();
+      const res = await patchMe(target.token)
+        .attach('avatar', PNG, 'a.png')
+        .expect(200);
+
+      const profile = await request(server())
+        .get(`/users/${target.id}`)
+        .set(auth(viewer.token))
+        .expect(200);
+
+      expect(profile.body).toMatchObject({
+        avatarUrl: (res.body as { avatarUrl: string }).avatarUrl,
+      });
+      expect(profile.body).not.toHaveProperty('email');
+      expect(profile.headers['cache-control']).toContain('no-store');
+    });
+
+    it('lets a user view their own profile', async () => {
+      const me = await newSession('Me');
+
+      const profile = await request(server())
+        .get(`/users/${me.id}`)
+        .set(auth(me.token))
+        .expect(200);
+
+      expect(profile.body).toMatchObject({ id: me.id, following: false });
+    });
+
+    it('counts both directions and only active users', async () => {
+      const a = await newSession();
+      const b = await newSession();
+      const c = await newSession();
+      for (const target of [b, c]) {
+        await request(server())
+          .post(`/users/${target.id}/follow`)
+          .set(auth(a.token))
+          .expect(200);
+      }
+      await request(server())
+        .post(`/users/${a.id}/follow`)
+        .set(auth(b.token))
+        .expect(200);
+
+      const before = await request(server())
+        .get(`/users/${a.id}`)
+        .set(auth(b.token))
+        .expect(200);
+      expect(before.body).toMatchObject({
+        followersCount: 1,
+        followingCount: 2,
+        following: true,
+      });
+
+      await users.update({ id: c.id }, { active: false });
+      const after = await request(server())
+        .get(`/users/${a.id}`)
+        .set(auth(b.token))
+        .expect(200);
+      expect(after.body).toMatchObject({ followingCount: 1 });
+    });
+
+    it('is a 401 for a deactivated viewer', async () => {
+      const viewer = await newSession();
+      const target = await newSession();
+      await users.update({ id: viewer.id }, { active: false });
+
+      await request(server())
+        .get(`/users/${target.id}`)
+        .set(auth(viewer.token))
+        .expect(401);
+      await request(server())
+        .post(`/users/${target.id}/follow`)
+        .set(auth(viewer.token))
+        .expect(401);
+      await request(server())
+        .delete(`/users/${target.id}/follow`)
+        .set(auth(viewer.token))
+        .expect(401);
+    });
+
+    it('unfollow is a 404 for an unknown user and a 400 for a malformed id', async () => {
+      const me = await newSession();
+
+      await request(server())
+        .delete(`/users/${randomUUID()}/follow`)
+        .set(auth(me.token))
+        .expect(404);
+      await request(server())
+        .delete('/users/not-a-uuid/follow')
+        .set(auth(me.token))
+        .expect(400);
+      await request(server())
+        .post('/users/not-a-uuid/follow')
+        .set(auth(me.token))
+        .expect(400);
+    });
+
+    it('translates errors with ?lang=vi', async () => {
+      const me = await newSession();
+
+      const self = await request(server())
+        .post(`/users/${me.id}/follow?lang=vi`)
+        .set(auth(me.token))
+        .expect(400);
+      expect(self.body).toMatchObject({
+        message: 'Bạn không thể theo dõi hoặc bỏ theo dõi chính mình',
+      });
+
+      const unknown = await request(server())
+        .get(`/users/${randomUUID()}?lang=vi`)
+        .set(auth(me.token))
+        .expect(404);
+      expect(unknown.body).toMatchObject({
+        message: 'Không tìm thấy người dùng',
+      });
+    });
+
+    it('removes follows together with a deleted user', async () => {
+      const follower = await newSession();
+      const target = await newSession();
+      await request(server())
+        .post(`/users/${target.id}/follow`)
+        .set(auth(follower.token))
+        .expect(200);
+
+      await users.delete({ id: follower.id });
+
+      const rows = await app
+        .get(DataSource)
+        .query('SELECT 1 FROM follows WHERE follower_id = $1', [follower.id]);
+      expect(rows).toHaveLength(0);
+    });
+
+    it('the database refuses a self-follow even without the service check', async () => {
+      const me = await newSession();
+
+      await expect(
+        app
+          .get(DataSource)
+          .query(
+            'INSERT INTO follows (follower_id, following_id) VALUES ($1, $1)',
+            [me.id],
+          ),
+      ).rejects.toThrow(/CHK_follows_not_self/);
     });
   });
 });

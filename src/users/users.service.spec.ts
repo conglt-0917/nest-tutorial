@@ -105,7 +105,6 @@ describe('UsersService', () => {
     });
 
     it('getActiveUser returns 401 when the user was deleted or deactivated', async () => {
-      // findOneBy({ id, active: true }) finds nothing in both cases.
       repositoryMock.findOneBy.mockResolvedValue(null);
 
       await expect(service.getActiveUser('u1')).rejects.toThrow(
@@ -134,7 +133,6 @@ describe('UsersService', () => {
     );
     expect(repositoryMock.createQueryBuilder).toHaveBeenCalledWith('user');
     expect(queryBuilderMock.addSelect).toHaveBeenCalledWith('user.password');
-    // Parameterized, never string-concatenated.
     expect(queryBuilderMock.where).toHaveBeenCalledWith('user.email = :email', {
       email: 'a@b.c',
     });
@@ -373,5 +371,159 @@ describe('UsersService', () => {
         expect(followsServiceMock[action]).not.toHaveBeenCalled();
       },
     );
+  });
+
+  describe('updateMe, edge cases', () => {
+    const avatar = {
+      originalname: 'me.png',
+      mimetype: 'image/png',
+      size: 3,
+      buffer: Buffer.from('png'),
+    };
+    const stored = {
+      id: 'a2',
+      storageKey: 'a2.png',
+      fileName: 'me.png',
+      mimeType: 'image/png',
+      size: 3,
+    };
+
+    beforeEach(() => {
+      repositoryMock.findOneBy.mockResolvedValue({ id: 'u1', active: true });
+      txRepositoryMock.findOne.mockResolvedValue({
+        id: 'u1',
+        name: 'Old',
+        bio: 'old bio',
+      });
+      attachmentsServiceMock.findUrl.mockResolvedValue(null);
+      attachmentsServiceMock.storeImage.mockResolvedValue(stored);
+      attachmentsServiceMock.replaceSingle.mockResolvedValue({
+        attachment: { id: 'a2' },
+        removedKeys: [],
+      });
+    });
+
+    it('is a 401 when the user is deactivated after the first check, and drops the new file', async () => {
+      txRepositoryMock.findOne.mockResolvedValue(null);
+
+      await expect(service.updateMe('u1', {}, avatar)).rejects.toThrow(
+        new UnauthorizedException('auth.UNAUTHORIZED'),
+      );
+      expect(txRepositoryMock.save).not.toHaveBeenCalled();
+      expect(attachmentsServiceMock.replaceSingle).not.toHaveBeenCalled();
+      expect(attachmentsServiceMock.removeFiles).toHaveBeenCalledWith([
+        'a2.png',
+      ]);
+    });
+
+    it('an avatar-only update keeps name and bio', async () => {
+      const me = await service.updateMe('u1', {}, avatar);
+
+      expect(txRepositoryMock.save).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Old', bio: 'old bio' }),
+      );
+      expect(me).toMatchObject({ name: 'Old', bio: 'old bio' });
+    });
+
+    it('an empty update changes nothing and touches no file', async () => {
+      const me = await service.updateMe('u1', {});
+
+      expect(me).toMatchObject({
+        name: 'Old',
+        bio: 'old bio',
+        avatarUrl: null,
+      });
+      expect(attachmentsServiceMock.storeImage).not.toHaveBeenCalled();
+      expect(attachmentsServiceMock.removeFiles).toHaveBeenCalledWith([]);
+    });
+
+    it('a failed text-only update propagates the error and removes no file', async () => {
+      const error = new Error('db down');
+      txRepositoryMock.save.mockRejectedValueOnce(error);
+
+      await expect(service.updateMe('u1', { name: 'New' })).rejects.toBe(error);
+      expect(attachmentsServiceMock.removeFiles).not.toHaveBeenCalled();
+    });
+
+    it('removes old files only after the transaction has finished', async () => {
+      attachmentsServiceMock.replaceSingle.mockResolvedValue({
+        attachment: { id: 'a2' },
+        removedKeys: ['a1.png', 'a0.png'],
+      });
+
+      await service.updateMe('u1', {}, avatar);
+
+      const [transactionOrder] =
+        repositoryMock.manager.transaction.mock.invocationCallOrder;
+      const [removeOrder] =
+        attachmentsServiceMock.removeFiles.mock.invocationCallOrder;
+      expect(removeOrder).toBeGreaterThan(transactionOrder);
+      expect(attachmentsServiceMock.removeFiles).toHaveBeenCalledWith([
+        'a1.png',
+        'a0.png',
+      ]);
+      expect(attachmentsServiceMock.removeFiles).not.toHaveBeenCalledWith([
+        'a2.png',
+      ]);
+    });
+
+    it('never deletes the committed new avatar, even if removing old files fails', async () => {
+      attachmentsServiceMock.removeFiles.mockRejectedValueOnce(new Error('x'));
+
+      await expect(service.updateMe('u1', {}, avatar)).rejects.toThrow('x');
+      expect(attachmentsServiceMock.removeFiles).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('follow checks', () => {
+    it('checks the viewer before anything else', async () => {
+      repositoryMock.findOneBy.mockResolvedValue(null);
+
+      await expect(service.follow('u1', 'u2')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(repositoryMock.findOneBy).toHaveBeenCalledTimes(1);
+      expect(followsServiceMock.follow).not.toHaveBeenCalled();
+    });
+
+    it('rejects following yourself without looking the target up', async () => {
+      repositoryMock.findOneBy.mockResolvedValue({ id: 'u1', active: true });
+
+      await expect(service.follow('u1', 'u1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repositoryMock.findOneBy).toHaveBeenCalledTimes(1);
+    });
+
+    it('builds the profile from the target, not the viewer', async () => {
+      repositoryMock.findOneBy.mockImplementation(({ id }: { id: string }) =>
+        Promise.resolve({ id, name: id, bio: null, active: true }),
+      );
+      attachmentsServiceMock.findUrl.mockResolvedValue(null);
+      followsServiceMock.countFollowers.mockResolvedValue(1);
+      followsServiceMock.countFollowing.mockResolvedValue(0);
+      followsServiceMock.isFollowing.mockResolvedValue(true);
+
+      await expect(service.follow('u1', 'u2')).resolves.toMatchObject({
+        id: 'u2',
+        name: 'u2',
+      });
+      expect(followsServiceMock.countFollowers).toHaveBeenCalledWith('u2');
+      expect(followsServiceMock.countFollowing).toHaveBeenCalledWith('u2');
+      expect(attachmentsServiceMock.findUrl).toHaveBeenCalledWith(
+        { type: 'user', id: 'u2' },
+        'avatar',
+      );
+    });
+
+    it('never includes the email in a profile', async () => {
+      repositoryMock.findOneBy.mockImplementation(({ id }: { id: string }) =>
+        Promise.resolve({ id, email: `${id}@x.io`, name: id, bio: null }),
+      );
+
+      const profile = await service.getProfile('u1', 'u2');
+
+      expect(profile).not.toHaveProperty('email');
+    });
   });
 });
