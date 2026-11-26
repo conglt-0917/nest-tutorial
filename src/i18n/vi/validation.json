@@ -2,6 +2,7 @@
   "email": "email",
   "password": "mật khẩu",
   "name": "tên",
+  "bio": "tiểu sử",
   "refreshToken": "refresh token",
   "NOT_EMPTY": "$t(validation.{property}) không được để trống",
   "INVALID_EMAIL": "email không hợp lệ",

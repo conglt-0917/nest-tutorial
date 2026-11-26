@@ -28,6 +28,10 @@ export class User {
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
+  @ApiProperty({ type: String, nullable: true, example: 'Backend developer' })
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  bio: string | null;
+
   @ApiProperty({
     description: 'Inactive users cannot log in or use their tokens',
   })
