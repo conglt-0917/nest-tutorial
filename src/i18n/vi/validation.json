@@ -3,6 +3,13 @@
   "password": "mật khẩu",
   "name": "tên",
   "bio": "tiểu sử",
+  "title": "tiêu đề",
+  "description": "mô tả",
+  "body": "nội dung",
+  "limit": "limit",
+  "offset": "offset",
+  "authorId": "id tác giả",
+  "favoritedBy": "id người yêu thích",
   "refreshToken": "refresh token",
   "NOT_EMPTY": "$t(validation.{property}) không được để trống",
   "INVALID_EMAIL": "email không hợp lệ",
@@ -12,5 +19,7 @@
   "MIN": "{property} với giá trị \"{value}\" phải tối thiểu là {constraints.0}",
   "MAX": "{property} với giá trị \"{value}\" phải nhỏ hơn {constraints.0}",
   "MIN_LENGTH": "$t(validation.{property}) phải có ít nhất {constraints.0} ký tự",
-  "MAX_LENGTH": "$t(validation.{property}) không được vượt quá {constraints.0} ký tự"
+  "MAX_LENGTH": "$t(validation.{property}) không được vượt quá {constraints.0} ký tự",
+  "IS_INT": "$t(validation.{property}) phải là số nguyên",
+  "IS_UUID": "$t(validation.{property}) phải là UUID"
 }

@@ -14,7 +14,11 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe('AttachmentsService', () => {
-  const repositoryMock = { findOneBy: vi.fn(), findOne: vi.fn() };
+  const repositoryMock = {
+    findOneBy: vi.fn(),
+    findOne: vi.fn(),
+    find: vi.fn(),
+  };
   const storageMock = { write: vi.fn(), open: vi.fn(), remove: vi.fn() };
   const txRepositoryMock = {
     find: vi.fn(),
@@ -359,5 +363,36 @@ describe('AttachmentsService', () => {
         },
       ),
     ).rejects.toBe(error);
+  });
+
+  describe('findUrls', () => {
+    it('maps owner ids to urls in one query', async () => {
+      repositoryMock.find.mockResolvedValue([
+        { attachableId: 'u1', url: '/attachments/a1' },
+        { attachableId: 'u2', url: '/attachments/a2' },
+      ]);
+
+      await expect(
+        service.findUrls('user', ['u1', 'u2', 'u3'], 'avatar'),
+      ).resolves.toEqual(
+        new Map([
+          ['u1', '/attachments/a1'],
+          ['u2', '/attachments/a2'],
+        ]),
+      );
+      expect(repositoryMock.find).toHaveBeenCalledTimes(1);
+      expect(repositoryMock.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: { attachableId: true, url: true },
+        }),
+      );
+    });
+
+    it('skips the query for no owners', async () => {
+      await expect(service.findUrls('user', [], 'avatar')).resolves.toEqual(
+        new Map(),
+      );
+      expect(repositoryMock.find).not.toHaveBeenCalled();
+    });
   });
 });

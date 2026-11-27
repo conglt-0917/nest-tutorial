@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { I18nService } from 'nestjs-i18n';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import {
   ATTACHABLE_TYPE,
   ATTACHMENT_KIND,
@@ -39,6 +39,11 @@ export class UsersService {
 
   findActiveById(id: string): Promise<User | null> {
     return this.usersRepository.findOneBy({ id, active: true });
+  }
+
+  findActiveByIds(ids: string[]): Promise<User[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.usersRepository.findBy({ id: In(ids), active: true });
   }
 
   async getActiveUser(id: string): Promise<User> {

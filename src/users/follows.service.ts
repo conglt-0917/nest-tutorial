@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Follow } from './follow.entity.js';
 import { User } from './user.entity.js';
 
@@ -28,6 +28,18 @@ export class FollowsService {
 
   isFollowing(followerId: string, followingId: string): Promise<boolean> {
     return this.followsRepository.existsBy({ followerId, followingId });
+  }
+
+  async findFollowingIds(
+    followerId: string,
+    candidateIds: string[],
+  ): Promise<Set<string>> {
+    if (candidateIds.length === 0) return new Set();
+    const rows = await this.followsRepository.find({
+      select: { followingId: true },
+      where: { followerId, followingId: In(candidateIds) },
+    });
+    return new Set(rows.map((row) => row.followingId));
   }
 
   countFollowers(userId: string): Promise<number> {

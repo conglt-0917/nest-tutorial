@@ -22,6 +22,7 @@ describe('UsersService', () => {
   };
   const repositoryMock = {
     findOneBy: vi.fn(),
+    findBy: vi.fn(),
     existsBy: vi.fn(),
     createQueryBuilder: vi.fn(() => queryBuilderMock),
     manager: {
@@ -524,6 +525,23 @@ describe('UsersService', () => {
       const profile = await service.getProfile('u1', 'u2');
 
       expect(profile).not.toHaveProperty('email');
+    });
+  });
+
+  describe('findActiveByIds', () => {
+    it('returns the active users among the ids', async () => {
+      const users = [{ id: 'u1', active: true }];
+      repositoryMock.findBy.mockResolvedValue(users);
+
+      await expect(service.findActiveByIds(['u1', 'u2'])).resolves.toBe(users);
+      expect(repositoryMock.findBy).toHaveBeenCalledWith(
+        expect.objectContaining({ active: true }),
+      );
+    });
+
+    it('skips the query for no ids', async () => {
+      await expect(service.findActiveByIds([])).resolves.toEqual([]);
+      expect(repositoryMock.findBy).not.toHaveBeenCalled();
     });
   });
 });
