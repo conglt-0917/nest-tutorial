@@ -24,6 +24,7 @@ import { RedisModule } from './redis/redis.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AttachmentsApiModule } from './attachments/attachments-api.module.js';
+import { ArticlesModule } from './articles/articles.module.js';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { AttachmentsApiModule } from './attachments/attachments-api.module.js';
     UsersModule,
     AuthModule,
     AttachmentsApiModule,
+    ArticlesModule,
   ],
   controllers: [AppController],
   providers: [

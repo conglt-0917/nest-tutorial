@@ -10,6 +10,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { I18nService } from 'nestjs-i18n';
 import { sanitizeFileName } from '../common/utils/file.util.js';
+import { In } from 'typeorm';
 import type { EntityManager, Repository } from 'typeorm';
 import { Attachment } from './attachment.entity.js';
 import { AttachmentStorageService } from './attachment-storage.service.js';
@@ -20,6 +21,7 @@ import {
 } from './attachments.constants.js';
 import type {
   AttachableRef,
+  AttachableType,
   AttachmentKind,
   StoredFile,
   UploadedFileData,
@@ -111,6 +113,19 @@ export class AttachmentsService {
       where: { attachableType: owner.type, attachableId: owner.id, kind },
     });
     return attachment?.url ?? null;
+  }
+
+  async findUrls(
+    ownerType: AttachableType,
+    ownerIds: string[],
+    kind: AttachmentKind,
+  ): Promise<Map<string, string>> {
+    if (ownerIds.length === 0) return new Map();
+    const attachments = await this.attachmentsRepository.find({
+      select: { attachableId: true, url: true },
+      where: { attachableType: ownerType, attachableId: In(ownerIds), kind },
+    });
+    return new Map(attachments.map((a) => [a.attachableId, a.url]));
   }
 
   /** 404 when the file is missing from storage. */

@@ -19,6 +19,7 @@ describe('FollowsService', () => {
     createQueryBuilder: vi.fn(() => queryBuilderMock),
     delete: vi.fn(),
     existsBy: vi.fn(),
+    find: vi.fn(),
   };
   let service: FollowsService;
 
@@ -85,5 +86,25 @@ describe('FollowsService', () => {
       'follow.followerId = :userId',
       { userId: 'u1' },
     );
+  });
+
+  describe('findFollowingIds', () => {
+    it('returns the followed ids among the candidates', async () => {
+      repositoryMock.find.mockResolvedValue([{ followingId: 'u2' }]);
+
+      await expect(
+        service.findFollowingIds('u1', ['u2', 'u3']),
+      ).resolves.toEqual(new Set(['u2']));
+      expect(repositoryMock.find).toHaveBeenCalledWith(
+        expect.objectContaining({ select: { followingId: true } }),
+      );
+    });
+
+    it('skips the query for no candidates', async () => {
+      await expect(service.findFollowingIds('u1', [])).resolves.toEqual(
+        new Set(),
+      );
+      expect(repositoryMock.find).not.toHaveBeenCalled();
+    });
   });
 });

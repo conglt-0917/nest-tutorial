@@ -6,8 +6,7 @@ import {
 } from '@nestjs/common';
 import { compare, hash } from 'bcryptjs';
 import { I18nService } from 'nestjs-i18n';
-import { QueryFailedError } from 'typeorm';
-import { PG_UNIQUE_VIOLATION } from '../database/database.constants.js';
+import { isUniqueViolation } from '../common/utils/database-error.util.js';
 import type { User } from '../users/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import type { LoginDto } from './dto/login.dto.js';
@@ -100,12 +99,4 @@ export class AuthService {
   private emailTaken(): ConflictException {
     return new ConflictException(this.i18n.t('auth.EMAIL_ALREADY_EXISTS'));
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof QueryFailedError &&
-    (error.driverError as { code?: string } | undefined)?.code ===
-      PG_UNIQUE_VIOLATION
-  );
 }
